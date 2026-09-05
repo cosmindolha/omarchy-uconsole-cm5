@@ -32,6 +32,6 @@ The panel is an IPS LCD. A darker theme improves contrast but does not switch of
 
 The preserved kernel lacks Landlock. `DisableSandboxFilesystem` avoids pacman failing to create its filesystem sandbox; package signatures and syscall sandboxing remain enabled. The toolkit installs a pre-refresh hook to retain that setting. This is a compatibility concession to the vendor kernel.
 
-The RC1's unavailable ttfx screensaver is disabled. Native locking and display blanking work. Suspend/resume, battery runtime, a complete gauge learning cycle, CM4 support, and a fresh generalized installation on a second device have not been validated. Omarchy applications with x86-only dependencies need their own ARM alternatives.
+The RC1 image lacks ttfx. The theme toolkit now provides a pinned native ARM build recipe and a guarded 30 FPS screensaver runner; the built renderer and Escape dismissal were verified on the CM5. Automatic screensaver remains disabled unless you enable it. Native locking and display blanking work. Suspend/resume, battery runtime, a complete gauge learning cycle, CM4 support, and a fresh generalized installation on a second device have not been validated. Omarchy applications with x86-only dependencies need their own ARM alternatives.
 
 Upstream references: [ClockworkPi hardware/firmware](https://github.com/clockworkpi/uConsole), [CM5 vendor kernel](https://github.com/ak-rex/ClockworkPi-linux/tree/rpi-6.12.y), [Omarchy 4 Pi RC1](https://github.com/pkyanam/omarchy-4-pi/releases/tag/v0.1.0-rc.1).
