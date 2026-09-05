@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+[[ $(cat /var/lib/omarchy/cm5-root-switch) == cm5-root-switch-complete ]]
+cat > /etc/udev/rules.d/70-uconsole-input.rules <<'EOF'
+# Bind the original hardware mouse by its observed kernel input name.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="ClockworkPI uConsole Mouse", SYMLINK+="input/uconsole-mouse"
+EOF
+mkdir -p /etc/systemd/system/uconsole-mouse-remap.service.d
+cat > /etc/systemd/system/uconsole-mouse-remap.service.d/10-device.conf <<'EOF'
+[Service]
+Environment=DEVICE_PATH=/dev/input/uconsole-mouse
+EOF
+udevadm control --reload
+udevadm trigger --subsystem-match=input
+udevadm settle
+[[ -e /dev/input/uconsole-mouse ]]
+systemctl daemon-reload
+systemctl restart uconsole-mouse-remap
+# The root switch is complete; future boots use the original direct CM5 boot.
+python3 - <<'PY'
+from pathlib import Path
+p=Path('/boot/firmware/config.txt')
+s=p.read_text()
+s=s.replace('# One-time CM5 Omarchy root transition, using the existing vendor kernel.\ninitramfs omarchy-migration.img followkernel\n','')
+p.write_text(s)
+PY
+sync
+printf 'LIVE_CM5_FIXES_APPLIED\n'

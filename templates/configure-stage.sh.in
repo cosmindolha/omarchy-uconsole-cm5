@@ -1,0 +1,101 @@
+#!/bin/bash
+set -euo pipefail
+root=/omarchy-stage
+work=@WORKDIR@
+[[ -f $root/.image-staged ]]
+[[ $(findmnt -n -o SOURCE /) == /dev/mmcblk0p2 ]]
+mountpoint -q "$root" || mount --bind "$root" "$root"
+mkdir -p "$root"/{dev,proc,sys,run,boot/firmware}
+for dir in dev proc sys; do
+  mountpoint -q "$root/$dir" || mount --rbind "/$dir" "$root/$dir"
+  mount --make-rslave "$root/$dir"
+done
+mountpoint -q "$root/run" || mount -t tmpfs tmpfs "$root/run"
+cp -L /etc/resolv.conf "$root/etc/resolv.conf"
+chroot "$root" getent passwd @OWNER@ >/dev/null || chroot "$root" useradd -m -U -u 1000 -G wheel,audio,video,input,render -s /bin/bash -c @OWNER@ @OWNER@
+[[ $(chroot "$root" id -u @OWNER@) == 1000 && $(chroot "$root" id -g @OWNER@) == 1000 ]]
+getent shadow @OWNER@ | cut -d: -f1,2 | chroot "$root" chpasswd -e
+chroot "$root" passwd -l root
+install -d -m700 "$root@HOME@/.ssh"
+install -m600 @HOME@/.ssh/authorized_keys "$root@HOME@/.ssh/authorized_keys"
+chroot "$root" chown -R @OWNER@:@GROUP@ @HOME@/.ssh /opt/omarchy-4-pi
+cp -a /etc/ssh/ssh_host_* "$root/etc/ssh/"
+cat >"$root/etc/ssh/sshd_config.d/10-uconsole.conf" <<'EOF'
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication yes
+EOF
+printf '@OWNER@ ALL=(ALL:ALL) ALL\n' > "$root/etc/sudoers.d/10-uconsole-owner"
+chmod 440 "$root/etc/sudoers.d/10-uconsole-owner"
+printf '@HOSTNAME@\n' > "$root/etc/hostname"
+printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 @HOSTNAME@.local @HOSTNAME@\n' > "$root/etc/hosts"
+printf 'PARTUUID=@ROOT_PARTUUID@ / ext4 defaults,noatime 0 1\nPARTUUID=@BOOT_PARTUUID@ /boot/firmware vfat defaults 0 2\n' > "$root/etc/fstab"
+cp /etc/machine-id "$root/etc/machine-id"
+ln -sfn /usr/share/zoneinfo/@TIMEZONE@ "$root/etc/localtime"
+printf 'LANG=en_US.UTF-8\n' > "$root/etc/locale.conf"
+printf 'KEYMAP=us\nXKBLAYOUT=us\n' > "$root/etc/vconsole.conf"
+install -d -m700 "$root/etc/NetworkManager/system-connections"
+cp -a /etc/NetworkManager/system-connections/. "$root/etc/NetworkManager/system-connections/"
+install -d -m700 "$root/var/lib/NetworkManager"
+if [[ -f /var/lib/NetworkManager/secret_key ]]; then cp -a /var/lib/NetworkManager/secret_key "$root/var/lib/NetworkManager/"; fi
+# The established CM5 driver stack replaces the image's generic Pi 4 kernel.
+if chroot "$root" pacman -Q linux-aarch64 >/dev/null 2>&1; then chroot "$root" pacman -R --noconfirm linux-aarch64 uboot-raspberrypi; fi
+cp -a /lib/modules/@KERNEL@ "$root/usr/lib/modules/"
+rm -f "$root/usr/lib/modules/@KERNEL@/build"
+rsync -a /lib/firmware/ "$root/usr/lib/firmware/"
+for regulatory in regulatory.db regulatory.db.p7s; do cp -L --remove-destination "/lib/firmware/$regulatory" "$root/usr/lib/firmware/$regulatory"; done
+cp -a /boot/firmware/. "$root/boot/firmware/"
+chroot "$root" depmod @KERNEL@
+# Keep the original uConsole audio routing and mouse-button correction.
+install -m755 "$work/hardware/audio_3.5_patch.py" "$root/usr/local/bin/"
+install -m755 "$work/hardware/clockworkpi-audio-shutdown.sh" "$root/usr/local/bin/"
+install -m755 "$work/hardware/uconsole-mouse-remap.py" "$root/usr/local/bin/"
+for unit in clockworkpi-audio-patch clockworkpi-audio-shutdown uconsole-mouse-remap; do
+  cp "$work/hardware/$unit.service" "$root/etc/systemd/system/"
+done
+cat > "$root/etc/udev/rules.d/70-uconsole-input.rules" <<'EOF'
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="ClockworkPI uConsole Mouse", SYMLINK+="input/uconsole-mouse"
+EOF
+if [[ -f /etc/udev/rules.d/99-uconsole-charging.rules ]]; then
+  sort -u /etc/udev/rules.d/99-uconsole-charging.rules > "$root/etc/udev/rules.d/99-uconsole-charging.rules"
+fi
+if ! grep -q '^DisableSandboxFilesystem' "$root/etc/pacman.conf"; then
+  sed -i '/^\[options\]/a # CM5 vendor kernel has no CONFIG_SECURITY_LANDLOCK.\nDisableSandboxFilesystem' "$root/etc/pacman.conf"
+fi
+chroot "$root" pacman -S --needed --noconfirm python-evdev
+# Complete owner setup offline using the port's own finalizer.
+chroot "$root" runuser -u @OWNER@ -- env HOME=@HOME@ USER=@OWNER@ LOGNAME=@OWNER@ SHELL=/bin/bash OMARCHY_PATH=/usr/share/omarchy OMARCHY_SETUP_CONTEXT=provision-owner OMARCHY_USER_NAME=@OWNER@ OMARCHY_USER_EMAIL= PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin /usr/share/omarchy/bin/omarchy-provision-user --force --first-install
+cat > "$root@HOME@/.config/hypr/monitors.lua" <<'EOF'
+-- ClockworkPi uConsole CM5: native portrait DSI panel mounted counterclockwise.
+hl.monitor({ output = "DSI-2", mode = "preferred", position = "0x0", scale = 1, transform = 3 })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+hl.env("GDK_SCALE", "1")
+EOF
+mkdir -p "$root/etc/xdg/uwsm/env.d"
+cat > "$root/etc/xdg/uwsm/env.d/90-uconsole" <<'EOF'
+export GDK_SCALE=1
+export QT_SCALE_FACTOR=1
+EOF
+chroot "$root" runuser -u @OWNER@ -- env HOME=@HOME@ OMARCHY_PATH=/usr/share/omarchy PATH=/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin omarchy-toggle screensaver-off on
+# Owner provisioning and partition expansion have been performed explicitly.
+rm -f "$root/var/lib/omarchy/provisioning/pending"
+chroot "$root" systemctl disable omarchy-rpi4-grow-root.service omarchy-provision-owner.service
+mkdir -p "$root/etc/sddm.conf.d"
+printf '[Autologin]\nUser=@OWNER@\nSession=omarchy.desktop\n' > "$root/etc/sddm.conf.d/autologin.conf"
+chroot "$root" systemctl enable NetworkManager sshd avahi-daemon bluetooth sddm clockworkpi-audio-patch clockworkpi-audio-shutdown uconsole-mouse-remap
+chroot "$root" systemctl set-default graphical.target
+# Preserve remote access when the image's firewall starts.
+# Stage firewall rules without trying to reload the host kernel from a chroot.
+sed -i 's/^ENABLED=.*/ENABLED=no/' "$root/etc/ufw/ufw.conf"
+chroot "$root" ufw allow 22/tcp
+sed -i 's/^ENABLED=.*/ENABLED=yes/' "$root/etc/ufw/ufw.conf"
+chroot "$root" chown -R @OWNER@:@GROUP@ @HOME@
+chroot "$root" /usr/bin/sshd -t
+chroot "$root" visudo -c
+chroot "$root" python -c 'import evdev'
+chroot "$root" /usr/bin/pinctrl get 10
+mkdir -p "$root/run/user/1000"
+chroot "$root" chown @OWNER@:@GROUP@ /run/user/1000
+chmod 700 "$root/run/user/1000"
+chroot "$root" runuser -u @OWNER@ -- env HOME=@HOME@ USER=@OWNER@ XDG_RUNTIME_DIR=/run/user/1000 OMARCHY_PATH=/usr/share/omarchy PATH=/usr/share/omarchy/bin:/usr/bin:/bin /bin/bash -c 'cd "$HOME"; Hyprland --verify-config --config .config/hypr/hyprland.lua'
+printf 'Configured %s\n' "$(date -u +%FT%TZ)" > "$root/.cm5-configured"

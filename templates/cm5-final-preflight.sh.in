@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+root=/omarchy-stage
+work=@WORKDIR@
+[[ -f $root/.cm5-configured ]]
+chroot "$root" pacman -Q linux-uconsole-cm5 hyprland quickshell mesa chromium python-evdev
+[[ $(blkid -s PARTUUID -o value /dev/mmcblk0p2) == @ROOT_PARTUUID@ ]]
+[[ $(blkid -s PARTUUID -o value /dev/mmcblk0p1) == @BOOT_PARTUUID@ ]]
+cmp /boot/firmware/kernel_2712.img "$root/boot/firmware/kernel_2712.img"
+cmp /boot/firmware/bcm2712-rpi-cm5-cm5io.dtb "$root/boot/firmware/bcm2712-rpi-cm5-cm5io.dtb"
+cmp /boot/firmware/overlays/clockworkpi-uconsole-cm5.dtbo "$root/boot/firmware/overlays/clockworkpi-uconsole-cm5.dtbo"
+# Configure the login screen for the same physical orientation as the desktop.
+mkdir -p "$root/etc/sddm-uconsole"
+cp "$root/usr/share/sddm/hyprland.lua" "$root/etc/sddm-uconsole/hyprland.lua"
+cat >> "$root/etc/sddm-uconsole/hyprland.lua" <<'EOF'
+hl.monitor({ output = "DSI-2", mode = "preferred", position = "0x0", scale = 1, transform = 3 })
+hl.env("AQ_NO_MODIFIERS", "1")
+hl.env("GDK_SCALE", "1")
+EOF
+cat > "$root/etc/sddm.conf.d/20-uconsole.conf" <<'EOF'
+[Wayland]
+CompositorCommand=start-hyprland -- --config /etc/sddm-uconsole/hyprland.lua
+EOF
+for program in /usr/bin/Hyprland /usr/bin/quickshell /usr/bin/chromium /usr/lib/chromium/chromium /usr/bin/sshd /usr/bin/pinctrl; do
+  [[ -x "$root$program" ]]
+  dependencies=$(chroot "$root" ldd "$program")
+  if grep -q 'not found' <<< "$dependencies"; then printf '%s\n' "$dependencies"; exit 1; fi
+done
+chroot "$root" /usr/bin/sshd -t
+chroot "$root" systemctl is-enabled sshd NetworkManager avahi-daemon sddm
+chroot "$root" runuser -u @OWNER@ -- env HOME=@HOME@ USER=@OWNER@ XDG_RUNTIME_DIR=/run/user/1000 OMARCHY_PATH=/usr/share/omarchy PATH=/usr/share/omarchy/bin:/usr/bin:/bin /bin/bash -c 'cd "$HOME"; Hyprland --verify-config --config .config/hypr/hyprland.lua'
+grep -q -- '--dport 22 -j ACCEPT' "$root/etc/ufw/user.rules"
+grep -q -- '--dport 22 -j ACCEPT' "$root/etc/ufw/user6.rules"
+[[ -s $root@HOME@/.ssh/authorized_keys ]]
+[[ -d $root/usr/lib/modules/@KERNEL@/kernel ]]
+python3 "$work/test-migration.py"
+install -d "$root/var/lib/omarchy/cm5-install"
+cp "$work"/*.sh "$work/cm5-migration-init" "$work/test-migration.py" "$root/var/lib/omarchy/cm5-install/"
+cp "$work"/*.pkg.tar.zst "$root/var/lib/omarchy/cm5-install/"
+# Recheck the RAM environment contains the required applets and interpreter.
+chroot "$work/migration-ramfs" /bin/sh -n /init
+chroot "$work/migration-ramfs" /bin/busybox true
+printf 'Passed %s\n' "$(date -u +%FT%TZ)" > "$root/.cm5-preflight-passed"
+sync
+printf 'CM5_PREFLIGHT_PASSED\n'

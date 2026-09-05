@@ -1,0 +1,39 @@
+#!/bin/bash
+set -euo pipefail
+root=/omarchy-stage
+pkg=@WORKDIR@/cm5-kernel-package
+mkdir -p "$pkg/usr/lib/modules" "$pkg/boot/firmware/overlays" "$pkg/usr/share/doc/linux-uconsole-cm5"
+cp -a /lib/modules/@KERNEL@ "$pkg/usr/lib/modules/"
+rm -f "$pkg/usr/lib/modules/@KERNEL@/build"
+cp /boot/firmware/kernel_2712.img "$pkg/boot/firmware/"
+cp /boot/firmware/bcm2712*.dtb "$pkg/boot/firmware/"
+cp /boot/firmware/overlays/*.dtbo "$pkg/boot/firmware/overlays/"
+cp /boot/config-@KERNEL@ "$pkg/usr/share/doc/linux-uconsole-cm5/kernel.config"
+cat > "$pkg/usr/share/doc/linux-uconsole-cm5/README" <<'EOF'
+ClockworkPi uConsole Raspberry Pi CM5 kernel carried from this device's working Debian installation.
+Kernel: @KERNEL@. See the local manifest for source identity.
+Architecture aarch64, 16 KB pages. Keep the matching kernel, modules, DTBs and overlays together.
+Boots directly through Raspberry Pi EEPROM/firmware, with /boot/firmware on eMMC partition 1.
+Do not replace this hardware package with a generic linux-aarch64 or U-Boot image.
+This locally packaged, on-device-verified kernel has no automatic upstream build channel.
+EOF
+cat > "$pkg/.PKGINFO" <<EOF
+pkgname = linux-uconsole-cm5
+pkgbase = linux-uconsole-cm5
+pkgver = @PKGVER@
+pkgdesc = Known-working ClockworkPi uConsole CM5 vendor kernel and matching device trees
+builddate = $(date +%s)
+packager = Local uConsole CM5 adaptation
+size = $(du -sb "$pkg" | cut -f1)
+arch = aarch64
+license = GPL2
+provides = linux
+conflict = linux-aarch64
+conflict = uboot-raspberrypi
+EOF
+# The files already staged are unowned copies of this exact package payload.
+archive=@WORKDIR@/linux-uconsole-cm5-@PKGVER@-aarch64.pkg.tar.zst
+(cd "$pkg" && tar --zstd -cf "$archive" .PKGINFO usr boot)
+cp "$archive" "$root/tmp/"
+chroot "$root" pacman -U --noconfirm --overwrite 'usr/lib/modules/@KERNEL@/*' --overwrite 'boot/firmware/*' /tmp/linux-uconsole-cm5-@PKGVER@-aarch64.pkg.tar.zst
+chroot "$root" pacman -Q linux-uconsole-cm5

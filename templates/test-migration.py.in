@@ -1,0 +1,31 @@
+from pathlib import Path
+import subprocess, tempfile, os
+source=Path(__file__).with_name('cm5-migration-init').read_text()
+body=source[source.index('if [ -f /newroot/.omarchy-switch-ready ]; then'):source.index('[ -x /newroot/sbin/init ]')]
+with tempfile.TemporaryDirectory(prefix='omarchy-switch-test-') as tmp:
+ root=Path(tmp)/'newroot'; root.mkdir()
+ (root/'usr').mkdir(); (root/'usr/original').write_text('debian')
+ (root/'bin').symlink_to('usr/bin'); (root/'.hidden-original').write_text('preserve')
+ (root/'home/testuser').mkdir(parents=True); (root/'home/testuser/test').write_text('preserve')
+ (root/'.omarchy-switch-ready').touch()
+ stage=root/'omarchy-stage'
+ (stage/'usr/lib/systemd').mkdir(parents=True)
+ (stage/'usr/lib/systemd/systemd').write_text('#!/bin/sh\nexit 0\n')
+ (stage/'usr/lib/systemd/systemd').chmod(0o755)
+ (stage/'usr/new-system').write_text('omarchy')
+ (stage/'bin').symlink_to('usr/bin')
+ (stage/'home/testuser').mkdir(parents=True); (stage/'home/testuser/new').write_text('new user')
+ (stage/'.cm5-preflight-passed').touch()
+ test='set -e\nfail() { echo "$*" >&2; exit 1; }\n'+body.replace('/newroot',str(root))
+ subprocess.run(['/bin/sh','-c',test],check=True)
+ assert (root/'usr/new-system').read_text()=='omarchy'
+ assert (root/'home/testuser/new').read_text()=='new user'
+ assert (root/'debian-recovery/usr/original').read_text()=='debian'
+ assert (root/'debian-recovery/home/testuser/test').read_text()=='preserve'
+ assert (root/'debian-recovery/.hidden-original').read_text()=='preserve'
+ assert (root/'debian-recovery/bin').is_symlink()
+ assert (root/'bin').is_symlink()
+ assert (root/'var/lib/omarchy/cm5-root-switch').read_text().strip()=='cm5-root-switch-complete'
+ subprocess.run(['/bin/sh','-c',test],check=True)
+ assert (root/'usr/new-system').read_text()=='omarchy'
+ print('PASS: offline root switch preserves original directories, hidden files, symlinks; second invocation is inert')

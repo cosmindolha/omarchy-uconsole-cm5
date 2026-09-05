@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+cd @WORKDIR@
+expected=288dc0db84348e1689909777084735f8297460ad0f92b067cc80e199e7f4b5f4
+printf '%s  omarchy.img.xz\n' "$expected" | sha256sum -c -
+[[ ! -e omarchy.img && ! -e /omarchy-stage ]]
+xz -dc omarchy.img.xz | dd of=omarchy.img bs=4M conv=sparse status=progress
+printf '%s  omarchy.img\n' 607d4396a376c183c6c890e300e9fb5b76fc263dd858d4b1252362d656c935f7 | sha256sum -c -
+loop=$(losetup --find --show --partscan --read-only omarchy.img)
+cleanup() {
+  if mountpoint -q /mnt/omarchy-image; then umount /mnt/omarchy-image; fi
+  losetup -d "$loop"
+}
+trap cleanup EXIT
+mkdir -p /mnt/omarchy-image /omarchy-stage
+mount -o ro,noload "${loop}p2" /mnt/omarchy-image
+rsync -aHAX --numeric-ids /mnt/omarchy-image/ /omarchy-stage/
+umount /mnt/omarchy-image
+losetup -d "$loop"
+trap - EXIT
+chroot /omarchy-stage /bin/bash -c 'set -e; uname -m; pacman -Q hyprland quickshell mesa chromium; deps=$(ldd /usr/bin/Hyprland); if grep -q "not found" <<< "$deps"; then printf "%s\n" "$deps"; exit 1; fi'
+date -u > /omarchy-stage/.image-staged
+printf 'STAGED\n'

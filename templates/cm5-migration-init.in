@@ -1,0 +1,54 @@
+#!/bin/sh
+# Runs entirely from RAM. The original kernel/DTB/overlays remain in use.
+export PATH=/bin:/sbin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+exec </dev/console >/dev/console 2>&1
+fail() {
+  echo "uConsole Omarchy migration stopped: $*"
+  echo "No automatic destructive retries. Recovery shell follows."
+  exec sh
+}
+i=0
+while [ ! -b /dev/mmcblk0p2 ]; do
+  sleep 1
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || fail 'eMMC root partition missing'
+done
+mkdir -p /newroot
+# These identities are captured from the actual device before staging.
+blkid /dev/mmcblk0p2 | grep -q 'UUID="@ROOT_UUID@"' || fail 'unexpected eMMC partition'
+mount -t ext4 -o rw,noatime /dev/mmcblk0p2 /newroot || fail 'cannot mount eMMC'
+if [ -f /newroot/.omarchy-switch-ready ]; then
+  [ -x /newroot/omarchy-stage/usr/lib/systemd/systemd ] || fail 'staged systemd missing'
+  [ -f /newroot/omarchy-stage/.cm5-preflight-passed ] || fail 'staged preflight missing'
+  [ ! -e /newroot/debian-recovery ] || fail 'recovery directory already exists'
+  echo 'Switching uConsole root to Omarchy ARM...'
+  mkdir /newroot/debian-recovery || fail 'cannot create recovery directory'
+  # Preserve the original root as directory renames on the same filesystem.
+  # No running Debian process has this filesystem as its root at this point.
+  for entry in /newroot/* /newroot/.[!.]* /newroot/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    case "$name" in omarchy-stage|debian-recovery|lost+found) continue ;; esac
+    mv "$entry" /newroot/debian-recovery/ || fail "cannot preserve $name"
+  done
+  sync
+  for entry in /newroot/omarchy-stage/* /newroot/omarchy-stage/.[!.]* /newroot/omarchy-stage/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    [ "$name" != 'lost+found' ] || continue
+    mv "$entry" /newroot/ || fail "cannot activate $name"
+  done
+  mkdir -p /newroot/var/lib/omarchy
+  echo 'cm5-root-switch-complete' >/newroot/var/lib/omarchy/cm5-root-switch
+  sync
+  echo 'Omarchy root activated; original system retained under /debian-recovery.'
+fi
+[ -x /newroot/sbin/init ] || fail 'root init missing'
+mkdir -p /newroot/dev /newroot/proc /newroot/sys /newroot/run
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+exec switch_root /newroot /sbin/init

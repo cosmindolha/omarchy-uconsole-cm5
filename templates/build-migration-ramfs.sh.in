@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+cd @WORKDIR@
+ramfs=@WORKDIR@/migration-ramfs
+mkdir -p "$ramfs"/{bin,sbin,proc,sys,dev,newroot}
+cp /usr/bin/busybox "$ramfs/bin/busybox"
+while read -r lib; do cp -L --parents "$lib" "$ramfs"; done < <(ldd /usr/bin/busybox | awk '$3 ~ /^\// {print $3} $1 ~ /^\// {print $1}')
+for applet in sh mount mkdir mv sync sleep grep blkid switch_root cat ls reboot; do ln -sf busybox "$ramfs/bin/$applet"; done
+install -m755 @WORKDIR@/cm5-migration-init "$ramfs/init"
+chroot "$ramfs" /bin/sh -n /init
+chroot "$ramfs" /bin/busybox true
+(cd "$ramfs" && find . -print0 | cpio --null -o --format=newc) | gzip -1 > migration-initramfs.img
+ls -lh migration-initramfs.img
+sha256sum migration-initramfs.img

@@ -1,0 +1,10 @@
+[Unit]
+Description=Disable uConsole speaker at shutdown
+Before=shutdown.target reboot.target
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/clockworkpi-audio-shutdown.sh
+[Install]
+WantedBy=multi-user.target

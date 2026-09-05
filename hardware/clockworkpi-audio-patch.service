@@ -1,0 +1,8 @@
+[Unit]
+Description=uConsole speaker and headphone routing
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/audio_3.5_patch.py
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

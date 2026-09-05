@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+root=/omarchy-stage
+work=@WORKDIR@
+[[ -f $root/.cm5-preflight-passed ]]
+[[ $(findmnt -n -o SOURCE /) == /dev/mmcblk0p2 ]]
+[[ ! -e /debian-recovery ]]
+chroot "$root" env GNUPGHOME=/etc/pacman.d/gnupg gpgconf --kill all
+chroot "$root" gpgconf --kill all
+umount -R "$root"
+cp /boot/firmware/config.txt /boot/firmware/config.pre-omarchy.txt
+cp /boot/firmware/cmdline.txt /boot/firmware/cmdline.pre-omarchy.txt
+install -m644 "$work/migration-initramfs.img" /boot/firmware/omarchy-migration.img
+python3 - <<'PY'
+from pathlib import Path
+boot=Path('/boot/firmware')
+p=boot/'config.txt'
+s=p.read_text()
+assert 'omarchy-migration.img' not in s
+s=s.rstrip()+'\n\n[all]\n# One-time CM5 Omarchy root transition, using the existing vendor kernel.\ninitramfs omarchy-migration.img followkernel\n'
+p.write_text(s)
+p=boot/'cmdline.txt'
+s=p.read_text().split()
+for option in ['quiet','splash','plymouth.ignore-serial-consoles']:
+ if option in s: s.remove(option)
+if 'net.ifnames=0' not in s: s.append('net.ifnames=0')
+p.write_text(' '.join(s)+'\n')
+PY
+touch /.omarchy-switch-ready
+sync
+printf 'ARMED: next boot activates Omarchy ARM on this CM5\n'
