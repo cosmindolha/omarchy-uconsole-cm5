@@ -34,6 +34,7 @@ Preparation explicitly requires a working ARM64 Debian CM5 installation with a 1
 - [Recovery](docs/RECOVERY.md): disarm before reboot, recover interrupted transitions, restore the previous root offline.
 - [Hardware and maintenance](docs/HARDWARE.md): display, input, audio, power, kernel and package limitations.
 - `prepare.py`: read actual device identities and render the scripts in `templates/`.
+- `cleanup-old-os.py`: preview recovery space or explicitly remove the old Debian root after validation. Keeping recovery is the default; see [cleanup options](docs/INSTALL.md#8-keep-or-remove-the-old-os).
 - `hardware/`: small GPIO audio and evdev trackball helpers.
 - `tests/`: render portability, shell syntax, root preservation, and failed-preflight protection.
 

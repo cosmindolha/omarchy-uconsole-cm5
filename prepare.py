@@ -29,6 +29,7 @@ def render(values, destination):
         out.write_text(body)
         out.chmod(0o755 if out.suffix != '.py' else 0o644)
     shutil.copytree(HERE/'hardware', destination/'hardware')
+    shutil.copy2(HERE/'cleanup-old-os.py', destination/'cleanup-old-os.py')
     (destination/'manifest.json').write_text(json.dumps(values, indent=2)+'\n')
 
 def inventory(owner):

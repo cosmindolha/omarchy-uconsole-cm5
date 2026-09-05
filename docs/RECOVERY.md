@@ -2,6 +2,8 @@
 
 The migration keeps the old root on the same ext4 filesystem. This protects against many configuration mistakes, but not eMMC failure. Keep your independent backup and a way to access eMMC without relying on the newly installed system's SSH.
 
+If you used `cleanup-old-os.py --remove-old-os`, the old root and its staging files have been permanently removed. The local root-restoration procedure below no longer applies; recovery requires an independent backup or a fresh installation. Cleanup is optional and never runs automatically.
+
 ## Before arming
 
 The original OS still runs normally. A failed stage does not change boot. Inspect the failure, unmount the stage's chroot mounts before cleaning it up, and preserve logs. Do not delete `/omarchy-stage` while `/dev`, `/proc` or `/sys` are bind-mounted inside it.

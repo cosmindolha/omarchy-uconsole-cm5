@@ -134,6 +134,24 @@ This supplies the readable scale/fonts, dark accents, keyboard-first color edito
 
 Finally, reboot normally once more and repeat the service, display and SSH checks. Keep `/debian-recovery` until the system has passed your own hardware and application checks. It consumes disk space but is valuable while validating the adaptation.
 
+## 8. Keep or remove the old OS
+
+The new system is **Arch Linux ARM userspace with Omarchy**, using the preserved CM5 kernel. Debian is retained only as a recovery copy; it is not the active userspace.
+
+Choose either option after testing a second normal reboot:
+
+- **Keep it:** do nothing. `/debian-recovery` retains the old system, old home directories and staging image for local rollback.
+- **Remove it:** preview its allocated space, then explicitly request removal. This permanently removes everything in that directory, including old personal files and image downloads. Local rollback will no longer be possible; retain any independent backups you need.
+
+```bash
+sudo python3 /var/lib/omarchy/cm5-install/cleanup-old-os.py --preview
+sudo python3 /var/lib/omarchy/cm5-install/cleanup-old-os.py --remove-old-os
+```
+
+For existing installations made before this utility was included, update this repository and run `sudo python3 cleanup-old-os.py --preview` from its directory instead. The removal flag is the same. With no arguments, the utility only previews; installation never automatically deletes recovery.
+
+Cleanup requires the completed migration marker, active Omarchy, a preserved kernel package and an unarmed migration. It refuses a symlinked recovery directory, mounted filesystems within it, or processes using it. The running Omarchy system and current boot files are retained. The original test unit had approximately 33 GiB allocated to recovery and staging; actual reclaimed space varies.
+
 ## Updates
 
 See [maintenance](HARDWARE.md). The locally packaged CM5 kernel has no automatic update channel. ARM userland updates are separate from kernel/DTB updates, and newer Omarchy releases may change the Lua, shell or theme contracts. Retain a recoverable working system before testing those changes.

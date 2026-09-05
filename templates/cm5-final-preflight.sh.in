@@ -36,6 +36,7 @@ grep -q -- '--dport 22 -j ACCEPT' "$root/etc/ufw/user6.rules"
 python3 "$work/test-migration.py"
 install -d "$root/var/lib/omarchy/cm5-install"
 cp "$work"/*.sh "$work/cm5-migration-init" "$work/test-migration.py" "$root/var/lib/omarchy/cm5-install/"
+cp "$work/cleanup-old-os.py" "$root/var/lib/omarchy/cm5-install/"
 cp "$work"/*.pkg.tar.zst "$root/var/lib/omarchy/cm5-install/"
 # Recheck the RAM environment contains the required applets and interpreter.
 chroot "$work/migration-ramfs" /bin/sh -n /init
